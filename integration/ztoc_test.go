@@ -222,7 +222,7 @@ func TestSociZtocInfo(t *testing.T) {
 					if err != nil {
 						t.Fatalf("expected Info type got %s: %v", output, err)
 					}
-					ztocPath := filepath.Join(blobStorePath, trimSha256Prefix(tt.ztocDigest))
+					ztocPath := filepath.Join(blobStoragePath, trimSha256Prefix(tt.ztocDigest))
 					ztoc, err := getFullZtoc(sh, ztocPath)
 					if err != nil {
 						t.Fatalf("failed getting original ztoc: %v", err)

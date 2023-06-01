@@ -25,13 +25,13 @@ import (
 
 	"github.com/awslabs/soci-snapshotter/fs/config"
 	"github.com/awslabs/soci-snapshotter/soci"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/awslabs/soci-snapshotter/ztoc"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/content"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/urfave/cli"
-	"oras.land/oras-go/v2/content/oci"
 )
 
 var getFileCommand = cli.Command{
@@ -88,12 +88,12 @@ var getFileCommand = cli.Command{
 }
 
 func getZtoc(ctx context.Context, d digest.Digest) (*ztoc.Ztoc, error) {
-	blobStore, err := oci.New(config.SociContentStorePath)
+	blobStorage, err := storage.NewStorage(config.SociContentStorePath)
 	if err != nil {
 		return nil, err
 	}
 
-	reader, err := blobStore.Fetch(ctx, v1.Descriptor{Digest: d})
+	reader, err := blobStorage.Fetch(ctx, v1.Descriptor{Digest: d})
 	if err != nil {
 		return nil, err
 	}

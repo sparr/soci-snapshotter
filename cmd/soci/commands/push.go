@@ -29,13 +29,13 @@ import (
 	"github.com/awslabs/soci-snapshotter/fs"
 	"github.com/awslabs/soci-snapshotter/fs/config"
 	"github.com/awslabs/soci-snapshotter/soci"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/reference"
 	dockercliconfig "github.com/docker/cli/cli/config"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/urfave/cli"
 	oraslib "oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -133,7 +133,7 @@ if they are available in the snapshotter's local content store.
 			}, nil
 		}
 
-		src, err := oci.New(config.SociContentStorePath)
+		src, err := storage.NewStorage(config.SociContentStorePath)
 		if err != nil {
 			return fmt.Errorf("cannot create OCI local store: %w", err)
 		}

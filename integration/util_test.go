@@ -68,7 +68,7 @@ const (
 	builtinSnapshotterFlagEnv    = "BUILTIN_SNAPSHOTTER"
 	buildArgsEnv                 = "DOCKER_BUILD_ARGS"
 	dockerLibrary                = "public.ecr.aws/docker/library/"
-	blobStorePath                = "/var/lib/soci-snapshotter-grpc/content/blobs/sha256"
+	blobStoragePath              = "/var/lib/soci-snapshotter-grpc/content/blobs/sha256"
 	containerdBlobStorePath      = "/var/lib/containerd/io.containerd.content.v1.content/blobs/sha256"
 	// Registry images to use in the test infrastructure. These are not intended to be used
 	// as images in the test itself, but just when we're setting up docker compose.

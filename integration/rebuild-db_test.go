@@ -33,7 +33,7 @@ func TestRebuildArtifactsDB(t *testing.T) {
 	img := rabbitmqImage
 	copyImage(sh, dockerhub(img), regConfig.mirror(img))
 	indexDigest := buildIndex(sh, regConfig.mirror(img), withMinLayerSize(0))
-	indexBytes := sh.O("cat", filepath.Join(blobStorePath, trimSha256Prefix(indexDigest)))
+	indexBytes := sh.O("cat", filepath.Join(blobStoragePath, trimSha256Prefix(indexDigest)))
 	var sociIndex soci.Index
 	err := soci.DecodeIndex(bytes.NewBuffer(indexBytes), &sociIndex)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestRebuildArtifactsDB(t *testing.T) {
 		},
 		{
 			name:               "Remove artifacts from content store and rebuild",
-			cmd:                []string{"rm", "-rf", blobStorePath},
+			cmd:                []string{"rm", "-rf", blobStoragePath},
 			expectedIndexCount: 0,
 			exptectedZtocCount: 0,
 		},

@@ -60,6 +60,7 @@ import (
 	"github.com/awslabs/soci-snapshotter/metadata"
 	"github.com/awslabs/soci-snapshotter/snapshot"
 	"github.com/awslabs/soci-snapshotter/soci"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	ctdsnapshotters "github.com/containerd/containerd/pkg/snapshotters"
@@ -72,7 +73,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	orascontent "oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/content/oci"
 )
 
 const (
@@ -192,7 +192,7 @@ func NewFilesystem(ctx context.Context, root string, cfg config.Config, opts ...
 		bgEmitMetricPeriod = defaultBgMetricEmitPeriod
 	}
 
-	store, err := oci.New(config.SociContentStorePath)
+	store, err := storage.NewStorage(config.SociContentStorePath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create local store: %w", err)
 	}

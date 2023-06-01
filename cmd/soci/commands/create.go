@@ -23,9 +23,9 @@ import (
 	"github.com/awslabs/soci-snapshotter/cmd/soci/commands/internal"
 	"github.com/awslabs/soci-snapshotter/fs/config"
 	"github.com/awslabs/soci-snapshotter/soci"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/urfave/cli"
-	"oras.land/oras-go/v2/content/oci"
 )
 
 const (
@@ -85,7 +85,7 @@ var CreateCommand = cli.Command{
 		} else if err != nil {
 			return err
 		}
-		blobStore, err := oci.New(config.SociContentStorePath)
+		blobStorage, err := storage.NewStorage(config.SociContentStorePath)
 		if err != nil {
 			return err
 		}
@@ -107,7 +107,7 @@ var CreateCommand = cli.Command{
 		}
 
 		for _, plat := range ps {
-			builder, err := soci.NewIndexBuilder(cs, blobStore, artifactsDb, append(builderOpts, soci.WithPlatform(plat))...)
+			builder, err := soci.NewIndexBuilder(cs, blobStorage, artifactsDb, append(builderOpts, soci.WithPlatform(plat))...)
 
 			if err != nil {
 				return err
@@ -118,7 +118,7 @@ var CreateCommand = cli.Command{
 				return err
 			}
 
-			err = soci.WriteSociIndex(ctx, sociIndexWithMetadata, blobStore, builder.ArtifactsDb)
+			err = soci.WriteSociIndex(ctx, sociIndexWithMetadata, blobStorage, builder.ArtifactsDb)
 			if err != nil {
 				return err
 			}

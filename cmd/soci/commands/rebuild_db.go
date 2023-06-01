@@ -21,9 +21,9 @@ import (
 
 	"github.com/awslabs/soci-snapshotter/fs/config"
 	"github.com/awslabs/soci-snapshotter/soci"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/urfave/cli"
-	"oras.land/oras-go/v2/content/oci"
 )
 
 var RebuildDBCommand = cli.Command{
@@ -40,11 +40,11 @@ var RebuildDBCommand = cli.Command{
 		if err != nil {
 			return err
 		}
-		blobStore, err := oci.New(config.SociContentStorePath)
+		blobStorage, err := storage.NewStorage(config.SociContentStorePath)
 		if err != nil {
 			return err
 		}
-		blobStorePath := filepath.Join(config.SociContentStorePath, "blobs")
-		return artifactsDb.SyncWithLocalStore(ctx, blobStore, blobStorePath, containerdContentStore)
+		blobStoragePath := filepath.Join(config.SociContentStorePath, "blobs")
+		return artifactsDb.SyncWithLocalStore(ctx, blobStorage, blobStoragePath, containerdContentStore)
 	},
 }

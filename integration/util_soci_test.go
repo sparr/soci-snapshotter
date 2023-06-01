@@ -150,7 +150,7 @@ func validateSociIndex(sh *shell.Shell, sociIndex soci.Index, imgManifestDigest 
 	}
 
 	for _, blob := range blobs {
-		blobContent := fetchContentFromPath(sh, blobStorePath+"/"+trimSha256Prefix(blob.Digest.String()))
+		blobContent := fetchContentFromPath(sh, blobStoragePath+"/"+trimSha256Prefix(blob.Digest.String()))
 		blobSize := int64(len(blobContent))
 		blobDigest := digest.FromBytes(blobContent)
 
@@ -178,7 +178,7 @@ func validateSociIndex(sh *shell.Shell, sociIndex soci.Index, imgManifestDigest 
 // Files that are smaller than 10 bytes wil not be included when generating the digest
 func getSociLocalStoreContentDigest(sh *shell.Shell) digest.Digest {
 	content := new(bytes.Buffer)
-	sh.Pipe(nil, []string{"find", blobStorePath, "-maxdepth", "1", "-type", "f", "-size", "+10c"}).Pipe(content, []string{"sort"})
+	sh.Pipe(nil, []string{"find", blobStoragePath, "-maxdepth", "1", "-type", "f", "-size", "+10c"}).Pipe(content, []string{"sort"})
 	return digest.FromBytes(content.Bytes())
 }
 

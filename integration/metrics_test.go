@@ -321,7 +321,7 @@ func buildIndexByManipulatingZtocData(sh *shell.Shell, indexDigest string, manip
 	var ztocDescs []ocispec.Descriptor
 	for _, blob := range index.Blobs {
 		ztocDigest := blob.Digest.String()
-		blobContent := fetchContentFromPath(sh, blobStorePath+"/"+trimSha256Prefix(ztocDigest))
+		blobContent := fetchContentFromPath(sh, blobStoragePath+"/"+trimSha256Prefix(ztocDigest))
 		zt, err := ztoc.Unmarshal(bytes.NewReader(blobContent))
 		if err != nil {
 			return "", fmt.Errorf("invalid ztoc %s from soci index %s: %v", ztocDigest, indexDigest, err)
@@ -339,7 +339,7 @@ func buildIndexByManipulatingZtocData(sh *shell.Shell, indexDigest string, manip
 			return "", fmt.Errorf("unable to read bytes of ztoc %s: %s", ztocDesc.Digest.String(), err)
 		}
 
-		ztocPath := fmt.Sprintf("%s/%s", blobStorePath, trimSha256Prefix(ztocDesc.Digest.String()))
+		ztocPath := fmt.Sprintf("%s/%s", blobStoragePath, trimSha256Prefix(ztocDesc.Digest.String()))
 		if err := testutil.WriteFileContents(sh, ztocPath, ztocBytes, 0600); err != nil {
 			return "", fmt.Errorf("cannot write ztoc %s to path %s: %s", ztocDesc.Digest.String(), ztocPath, err)
 		}
@@ -361,7 +361,7 @@ func buildIndexByManipulatingZtocData(sh *shell.Shell, indexDigest string, manip
 	}
 
 	newIndexDigest := digest.FromBytes(b)
-	newIndexPath := fmt.Sprintf("%s/%s", blobStorePath, trimSha256Prefix(newIndexDigest.String()))
+	newIndexPath := fmt.Sprintf("%s/%s", blobStoragePath, trimSha256Prefix(newIndexDigest.String()))
 	if err := testutil.WriteFileContents(sh, newIndexPath, b, 0600); err != nil {
 		return "", fmt.Errorf("cannot write index %s to path %s: %s", newIndexDigest, newIndexPath, err)
 	}

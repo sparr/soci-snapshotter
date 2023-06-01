@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/awslabs/soci-snapshotter/fs/config"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/awslabs/soci-snapshotter/util/dbutil"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
@@ -38,7 +39,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	bolt "go.etcd.io/bbolt"
-	"oras.land/oras-go/v2/content/oci"
 )
 
 // Artifacts package stores SOCI artifacts info in the following schema.
@@ -178,11 +178,11 @@ func (db *ArtifactsDb) Walk(f func(*ArtifactEntry) error) error {
 }
 
 // SyncWithLocalStore will sync the artifacts database with SOCIs local content store, either adding new or removing old artifacts.
-func (db *ArtifactsDb) SyncWithLocalStore(ctx context.Context, blobStore *oci.Store, blobStorePath string, cs content.Store) error {
-	if err := db.removeOldArtifacts(blobStore); err != nil {
+func (db *ArtifactsDb) SyncWithLocalStore(ctx context.Context, blobStorage *storage.Storage, blobStoragePath string, cs content.Store) error {
+	if err := db.removeOldArtifacts(blobStorage); err != nil {
 		return fmt.Errorf("failed to remove old artifacts from db: %w", err)
 	}
-	if err := db.addNewArtifacts(ctx, blobStorePath, cs); err != nil {
+	if err := db.addNewArtifacts(ctx, blobStoragePath, cs); err != nil {
 		return fmt.Errorf("failed to add new artifacts to db: %w", err)
 	}
 	return nil
@@ -231,7 +231,7 @@ func (db *ArtifactsDb) PruneLocalStore(ctx context.Context, blobStorePath string
 // (bucket.ForEach) causes unexpected behavior (see: https://github.com/boltdb/bolt/issues/426).
 // This implementation works around this issue by appending buckets to a slice when
 // iterating and removing them after.
-func (db *ArtifactsDb) removeOldArtifacts(blobStore *oci.Store) error {
+func (db *ArtifactsDb) removeOldArtifacts(blobStorage *storage.Storage) error {
 	err := db.db.Update(func(tx *bolt.Tx) error {
 		bucket, err := getArtifactsBucket(tx)
 		if err != nil {
@@ -244,7 +244,7 @@ func (db *ArtifactsDb) removeOldArtifacts(blobStore *oci.Store) error {
 			if err != nil {
 				return err
 			}
-			existsInContentStore, err := blobStore.Exists(context.Background(),
+			existsInContentStore, err := blobStorage.Exists(context.Background(),
 				ocispec.Descriptor{MediaType: ae.MediaType, Digest: digest.Digest(ae.Digest)})
 			if err != nil {
 				return err
@@ -266,14 +266,14 @@ func (db *ArtifactsDb) removeOldArtifacts(blobStore *oci.Store) error {
 }
 
 // addNewArtifacts will add any new artifacts discovered in SOCIs local content store to the artifacts database.
-func (db *ArtifactsDb) addNewArtifacts(ctx context.Context, blobStorePath string, cs content.Store) error {
+func (db *ArtifactsDb) addNewArtifacts(ctx context.Context, blobStoragePath string, cs content.Store) error {
 	addHashPrefix := func(name string) string {
 		if len(name) == 64 {
 			return fmt.Sprintf("sha256:%s", name)
 		}
 		return fmt.Sprintf("sha512:%s", name)
 	}
-	return filepath.WalkDir(blobStorePath, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(blobStoragePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

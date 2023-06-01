@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/awslabs/soci-snapshotter/fs/config"
+	"github.com/awslabs/soci-snapshotter/soci/storage"
 	"github.com/awslabs/soci-snapshotter/ztoc"
 	"github.com/awslabs/soci-snapshotter/ztoc/compression"
 	"github.com/containerd/containerd/content"
@@ -38,7 +39,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	orascontent "oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/errdef"
 )
 
@@ -253,14 +253,14 @@ func WithArtifactsDb(db *ArtifactsDb) BuildOption {
 // IndexBuilder creates soci indices.
 type IndexBuilder struct {
 	contentStore content.Store
-	blobStore    orascontent.Storage
+	blobStorage  orascontent.Storage
 	ArtifactsDb  *ArtifactsDb
 	config       *buildConfig
 	ztocBuilder  *ztoc.Builder
 }
 
 // NewIndexBuilder returns an `IndexBuilder` that is used to create soci indices.
-func NewIndexBuilder(contentStore content.Store, blobStore orascontent.Storage, artifactsDb *ArtifactsDb, opts ...BuildOption) (*IndexBuilder, error) {
+func NewIndexBuilder(contentStore content.Store, blobStorage orascontent.Storage, artifactsDb *ArtifactsDb, opts ...BuildOption) (*IndexBuilder, error) {
 	defaultPlatform := platforms.DefaultSpec()
 	config := &buildConfig{
 		spanSize:            defaultSpanSize,
@@ -277,7 +277,7 @@ func NewIndexBuilder(contentStore content.Store, blobStore orascontent.Storage, 
 
 	return &IndexBuilder{
 		contentStore: contentStore,
-		blobStore:    blobStore,
+		blobStorage:  blobStorage,
 		ArtifactsDb:  artifactsDb,
 		config:       config,
 		ztocBuilder:  ztoc.NewBuilder(config.buildToolIdentifier),
@@ -431,7 +431,7 @@ func (b *IndexBuilder) buildSociLayer(ctx context.Context, desc ocispec.Descript
 		return nil, err
 	}
 
-	err = b.blobStore.Push(ctx, ztocDesc, ztocReader)
+	err = b.blobStorage.Push(ctx, ztocDesc, ztocReader)
 	if err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return nil, fmt.Errorf("cannot push ztoc to local store: %w", err)
 	}
@@ -569,7 +569,7 @@ func WriteSociIndex(ctx context.Context, indexWithMetadata *IndexWithMetadata, s
 }
 
 // FetchIndex takes a digest string and returns the soci.Index with that digest
-func FetchIndex(ctx context.Context, storage *oci.Store, digestString string) (*Index, error) {
+func FetchIndex(ctx context.Context, storage *storage.Storage, digestString string) (*Index, error) {
 	dgst, err := digest.Parse(digestString)
 	if err != nil {
 		return nil, err
@@ -590,7 +590,7 @@ func FetchIndex(ctx context.Context, storage *oci.Store, digestString string) (*
 
 // RemoveIndex takes a digest string and removes that index manifest from the artifact db and content store
 // It also optionally returns a list of zTOCs referenced by the removed index manifest
-func RemoveIndex(ctx context.Context, storage *oci.Store, digestString string, returnReferencedZtocs bool) (*map[digest.Digest]bool, error) {
+func RemoveIndex(ctx context.Context, storage *storage.Storage, digestString string, returnReferencedZtocs bool) (*map[digest.Digest]bool, error) {
 	index, err := FetchIndex(ctx, storage, digestString)
 	if err != nil {
 		return nil, err
@@ -620,7 +620,7 @@ func RemoveIndex(ctx context.Context, storage *oci.Store, digestString string, r
 }
 
 func RemoveIndexes(ctx context.Context, digestStrings []string, removeOrphanedZtocs bool) error {
-	storage, err := oci.New(config.SociContentStorePath)
+	storage, err := storage.NewStorage(config.SociContentStorePath)
 	if err != nil {
 		return err
 	}
