@@ -157,7 +157,7 @@ func (s *Storage) Fetch(_ context.Context, target ocispec.Descriptor) (io.ReadCl
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
 	}
-
+	path = filepath.Join(s.root, path)
 	fp, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

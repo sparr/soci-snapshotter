@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -189,39 +188,22 @@ func (db *ArtifactsDb) SyncWithLocalStore(ctx context.Context, blobStorage *stor
 }
 
 // PruntLocalStore will remove local content store blobs that do not exist in the artifacts database
-func (db *ArtifactsDb) PruneLocalStore(ctx context.Context, blobStorePath string) error {
-	algorithmDirs, err := ioutil.ReadDir(blobStorePath)
+func (db *ArtifactsDb) PruneLocalStore(ctx context.Context, storePath string) error {
+	blobStorage, err := storage.NewStorage(storePath)
 	if err != nil {
 		return err
 	}
-	for _, d := range algorithmDirs {
-		if !d.IsDir() {
-			continue
-		}
-		algorithm := d.Name()
-
-		blobFiles, err := ioutil.ReadDir(filepath.Join(blobStorePath, algorithm))
-		if err != nil {
+	blobStorage.Walk(ctx, func(dgst digest.Digest) error {
+		has, err := db.HasArtifactEntry(dgst.String())
+		if err != nil && !errors.Is(err, errdefs.ErrNotFound) {
 			return err
 		}
-		for _, f := range blobFiles {
-			if f.IsDir() {
-				continue
-			}
-			encoded := f.Name()
-			if err != nil {
-				return err
-			}
-			digestString := algorithm + ":" + encoded
-			has, err := db.HasArtifactEntry(digestString)
-			if err != nil && !errors.Is(err, errdefs.ErrNotFound) {
-				return err
-			}
-			if !has {
-				RemoveContentStoreBlobByDigest(ctx, digestString)
-			}
+		if !has {
+			blobStorage.Delete(ctx, ocispec.Descriptor{Digest: dgst})
+			RemoveContentStoreBlobByDigest(ctx, dgst.String())
 		}
-	}
+		return nil
+	})
 
 	return nil
 }
