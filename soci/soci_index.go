@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/awslabs/soci-snapshotter/ztoc"
 	"github.com/awslabs/soci-snapshotter/ztoc/compression"
 	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/platforms"
@@ -517,7 +519,7 @@ func GetImageManifestDescriptor(ctx context.Context, cs content.Store, imageTarg
 }
 
 // WriteSociIndex writes the SociIndex manifest to oras `store`.
-func WriteSociIndex(ctx context.Context, indexWithMetadata *IndexWithMetadata, store orascontent.Storage, artifactsDb *ArtifactsDb) error {
+func WriteSociIndex(ctx context.Context, indexWithMetadata *IndexWithMetadata, store *oci.Store, artifactsDb *ArtifactsDb) error {
 	manifest, err := MarshalIndex(indexWithMetadata.Index)
 	if err != nil {
 		return err
@@ -535,14 +537,20 @@ func WriteSociIndex(ctx context.Context, indexWithMetadata *IndexWithMetadata, s
 
 	dgst := digest.FromBytes(manifest)
 	size := int64(len(manifest))
-
-	err = store.Push(ctx, ocispec.Descriptor{
+	desc := ocispec.Descriptor{
 		Digest: dgst,
 		Size:   size,
-	}, bytes.NewReader(manifest))
+	}
+
+	err = store.Push(ctx, desc, bytes.NewReader(manifest))
 
 	if err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return fmt.Errorf("cannot write SOCI index to local store: %w", err)
+	}
+
+	err = store.Tag(ctx, desc, dgst.String())
+	if err != nil {
+		return err
 	}
 
 	log.G(ctx).WithField("digest", dgst.String()).Debugf("soci index has been written")
@@ -588,24 +596,32 @@ func FetchIndex(ctx context.Context, storage *oci.Store, digestString string) (*
 	return &index, nil
 }
 
-// RemoveIndex takes a digest string and removes that index manifest from the artifact db and content store
+// removeIndex takes a digest string and removes that index manifest from the artifact db and content store
 // It also optionally returns a list of zTOCs referenced by the removed index manifest
-func RemoveIndex(ctx context.Context, storage *oci.Store, digestString string, returnReferencedZtocs bool) (*map[digest.Digest]bool, error) {
-	index, err := FetchIndex(ctx, storage, digestString)
-	if err != nil {
-		return nil, err
-	}
-
-	var referencedZtocDigests map[digest.Digest]bool
+func removeIndex(ctx context.Context, store *oci.Store, digestString string, returnReferencedZtocs bool) (*[]ocispec.Descriptor, error) {
+	var succs []ocispec.Descriptor
 	if returnReferencedZtocs {
-		referencedZtocDigests = make(map[digest.Digest]bool)
-		for _, blob := range index.Blobs {
-			referencedZtocDigests[blob.Digest] = true
+		dgst, err := digest.Parse(digestString)
+		if err != nil {
+			return nil, err
+		}
+		ae, err := db.GetArtifactEntry(digestString)
+		if err != nil {
+			return nil, err
+		}
+		desc := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Digest:    dgst,
+			Size:      ae.Size,
+		}
+		succs, err = orascontent.Successors(ctx, store, desc)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	// remove the index manifest artifact
-	err = db.RemoveArtifactEntryByIndexDigest(digestString)
+	err := db.RemoveArtifactEntryByIndexDigest(digestString)
 	if err != nil {
 		return nil, err
 	}
@@ -616,70 +632,108 @@ func RemoveIndex(ctx context.Context, storage *oci.Store, digestString string, r
 		return nil, err
 	}
 
-	return &referencedZtocDigests, nil
+	return &succs, nil
 }
 
 func RemoveIndexes(ctx context.Context, digestStrings []string, removeOrphanedZtocs bool) error {
-	storage, err := oci.New(config.SociContentStorePath)
+	store, err := oci.New(config.SociContentStorePath)
 	if err != nil {
 		return err
 	}
 
-	maybeOrphanZtocDigests := make(map[digest.Digest]bool)
-	for _, desc := range digestStrings {
-		referencedZtocDigests, err := RemoveIndex(ctx, storage, desc, removeOrphanedZtocs)
+	maybeOrphans := make([]ocispec.Descriptor, 0, 10)
+	for _, digestString := range digestStrings {
+		// TODO move parsing out to the CLI, only pass real digests into API
+		succs, err := removeIndex(ctx, store, digestString, removeOrphanedZtocs)
 		if err != nil {
 			return err
 		}
-		for k := range *referencedZtocDigests {
-			maybeOrphanZtocDigests[k] = true
+		if removeOrphanedZtocs {
+			maybeOrphans = append(maybeOrphans, *succs...)
 		}
 	}
 
 	if removeOrphanedZtocs {
-		err = db.Walk(func(ae *ArtifactEntry) error {
-			if ae.Type == ArtifactEntryTypeIndex {
-				index, err := FetchIndex(ctx, storage, ae.Digest)
+
+		// This step is required only until oci.Store supports Delete with index graph updates
+		store, err = ReindexManifests(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, desc := range maybeOrphans {
+			aeType, err := db.GetArtifactType(desc.Digest.String())
+			if err != nil && !errors.Is(err, errdefs.ErrNotFound) {
+				return err
+			}
+			if errors.Is(err, errdefs.ErrNotFound) || aeType != ArtifactEntryTypeLayer {
+				fmt.Printf("%s is either not in artifact db or not a ztoc!\n", desc.Digest.String())
+				continue
+			}
+			preds, err := store.Predecessors(ctx, desc)
+			if err != nil {
+				return err
+			}
+			if len(preds) == 0 {
+				fmt.Printf("removing orphaned ztoc digest %s\n", desc.Digest.String())
+
+				// remove the ztoc artifact
+				err = db.RemoveArtifactEntryByZtocDigest(desc.Digest.String())
 				if err != nil {
 					return err
 				}
 
-				// remove still-referenced ztocs from the list of potentially orphaned ztoc digests
-				for _, blob := range index.Blobs {
-					// FIXME why does go-staticcheck think this guard is unnecessary for just {delete()}?
-					if _, ok := maybeOrphanZtocDigests[blob.Digest]; ok {
-						fmt.Printf("keeping ztoc %s referenced by index manifest %s\n", blob.Digest.String(), ae.Digest)
-						delete(maybeOrphanZtocDigests, blob.Digest)
-						// bail out early if there are no more potential orphans
-						if len(maybeOrphanZtocDigests) == 0 {
-							return ErrWalkBailout
-						}
+				// remove the ztoc file
+				err = RemoveContentStoreBlobByDigest(ctx, desc.Digest.String())
+				if err != nil {
+					return err
+				}
+			} else {
+				fmt.Printf("keeping ztoc %s referenced by index manifest(s): ", desc.Digest.String())
+				for i, pred := range preds {
+					fmt.Print(pred.Digest.String())
+					if i != len(preds)-1 {
+						fmt.Print(", ")
 					}
 				}
-			}
-			return nil
-		})
-		if err != nil && !errors.Is(err, ErrWalkBailout) {
-			return err
-		}
-
-		// all remaining potential orphans are actually orphaned
-		for dgst := range maybeOrphanZtocDigests {
-			fmt.Printf("removing orphaned ztoc digest %s\n", dgst.String())
-
-			// remove the ztoc artifact
-			err = db.RemoveArtifactEntryByZtocDigest(dgst.String())
-			if err != nil {
-				return err
-			}
-
-			// remove the ztoc file
-			err = RemoveContentStoreBlobByDigest(ctx, dgst.String())
-			if err != nil {
-				return err
+				fmt.Println()
 			}
 		}
 	}
-
 	return nil
+}
+
+// ReindexManifests rebuilds the content store's list of manifsets in index.json
+// based on the contents of the ArtifactDb. Returns the freshly indexed content store.
+func ReindexManifests(ctx context.Context) (*oci.Store, error) {
+	fmt.Println("ReindexManifests")
+	os.Remove(filepath.Join(config.SociContentStorePath, "index.json"))
+	store, err := oci.New(config.SociContentStorePath)
+	if err != nil {
+		return nil, err
+	}
+	db.Walk(func(ae *ArtifactEntry) error {
+		if ae.Type == ArtifactEntryTypeIndex {
+			fmt.Println(ae.Digest)
+			dgst, err := digest.Parse(ae.Digest)
+			if err != nil {
+				return err
+			}
+			desc := ocispec.Descriptor{
+				Digest: dgst,
+			}
+			store.Tag(ctx, desc, desc.Digest.String())
+		}
+		return nil
+	})
+	err = store.SaveIndex()
+	if err != nil {
+		return nil, err
+	}
+	store, err = oci.New(config.SociContentStorePath)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("ReindexManifests done")
+	return store, nil
 }

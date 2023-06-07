@@ -89,6 +89,7 @@ var CreateCommand = cli.Command{
 		if err != nil {
 			return err
 		}
+		defer blobStore.SaveIndex()
 
 		ps, err := internal.GetPlatforms(ctx, cliContext, srcImg, cs)
 		if err != nil {
